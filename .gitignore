@@ -1,0 +1,34 @@
+# Scratch output from smoke tests / screenshots
+.tmp_*/
+.tmp_*
+
+# Large duplicate exports of the 2008-present data (the CSV has the same rows).
+# The KML (57 MB) is over GitHub's 50 MB warning size; re-download from geo.wa.gov if needed.
+Data/*.kml
+Data/DNR_Fire_Statistics_2008-Present.geojson
+
+# Presentation deck
+*.pptx
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Node (if a build step is ever added)
+node_modules/
+
+# Logs
+*.log
+
+# OS / editor
+.DS_Store
+Thumbs.db
+desktop.ini
+.vscode/
+.idea/
+
+# Secrets (e.g. an ngrok authtoken)
+.env
+.env.*

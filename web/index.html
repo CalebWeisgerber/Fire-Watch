@@ -1,0 +1,212 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Fire-Watch · Resource Allocation Planner</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+  <link rel="stylesheet" href="styles.css">
+  <link rel="icon" href="data:,">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="logo" aria-hidden="true">▲</span>
+      <div>
+        <h1>Fire-Watch</h1>
+        <p class="subtitle">Crew &amp; engine allocation planner · WA DNR Wildfire Division</p>
+      </div>
+      <span class="badge" title="Fire records cover DNR-protected lands only, not statewide totals">DNR-protected lands</span>
+    </div>
+    <div class="picker">
+      <label for="area">Viewing</label>
+      <select id="area"></select>
+    </div>
+  </header>
+
+  <!-- Five steps, in the order Dana plans a season. Each tab answers one question. -->
+  <nav class="tabs" role="tablist" aria-label="Planning steps">
+    <button role="tab" id="tab-plan" aria-controls="panel-plan" aria-selected="true"><span class="n">1</span><span class="t">Plan<small>Where do crews go?</small></span></button>
+    <button role="tab" id="tab-where" aria-controls="panel-where" aria-selected="false" tabindex="-1"><span class="n">2</span><span class="t">Where<small>Where does it burn?</small></span></button>
+    <button role="tab" id="tab-when" aria-controls="panel-when" aria-selected="false" tabindex="-1"><span class="n">3</span><span class="t">When<small>When to staff up?</small></span></button>
+    <button role="tab" id="tab-why" aria-controls="panel-why" aria-selected="false" tabindex="-1"><span class="n">4</span><span class="t">Why<small>Weather &amp; causes</small></span></button>
+    <button role="tab" id="tab-stage" aria-controls="panel-stage" aria-selected="false" tabindex="-1"><span class="n">5</span><span class="t">Stage &amp; prevent<small>Month-by-month</small></span></button>
+  </nav>
+
+  <div class="layout">
+    <main>
+      <div id="loading" class="loading" role="status">Loading 54,000+ fire records…</div>
+
+      <!-- 1 · PLAN -->
+      <section role="tabpanel" id="panel-plan" aria-labelledby="tab-plan">
+        <p class="takeaway" id="take-alloc"></p>
+        <div class="grid2">
+          <div class="card"><h2>Suggested crew split, <span id="alloc-year"></span></h2>
+            <div class="chart"><canvas id="c-alloc" aria-label="Suggested percent of crews per region"></canvas></div></div>
+          <div class="card"><h2>Why each region gets its share</h2>
+            <div class="table-wrap"><table id="alloc-table"><caption class="sr-only">Allocation by region with reasons</caption></table></div></div>
+        </div>
+        <details class="more">
+          <summary>How the split is calculated</summary>
+          <p class="note" id="alloc-method"></p>
+        </details>
+        <details class="more" open>
+          <summary>Is 1970–2007 history still valid? <span id="hold-summary" class="pill"></span></summary>
+          <div class="cards" id="holdout"></div>
+        </details>
+      </section>
+
+      <!-- 2 · WHERE -->
+      <section role="tabpanel" id="panel-where" aria-labelledby="tab-where" hidden>
+        <p class="takeaway" id="take-overview"></p>
+        <div class="kpis" id="kpis"></div>
+        <div class="card">
+          <div class="card-head">
+            <h2>Where fires started</h2>
+            <strong id="ov-count" class="match" aria-live="polite"></strong>
+          </div>
+          <div class="filters" role="group" aria-label="Map filters">
+            <div class="ctrl years">
+              <span class="lbl">Years: <strong id="yr-label">1970–2026</strong></span>
+              <div class="dual" id="yr-dual">
+                <input type="range" id="yr-from" min="1970" max="2026" step="1" value="1970" aria-label="From year">
+                <input type="range" id="yr-to" min="1970" max="2026" step="1" value="2026" aria-label="To year">
+              </div>
+              <div class="presets">
+                <button type="button" data-yr="1970,2026">All</button>
+                <button type="button" data-yr="1970,2007">1970–2007</button>
+                <button type="button" data-yr="2008,2026">2008+</button>
+                <button type="button" data-yr="2017,2026">Last 10 yrs</button>
+                <button type="button" data-yr="2026,2026">2026</button>
+              </div>
+            </div>
+            <div class="ctrl"><label for="ov-months">Months</label>
+              <select id="ov-months">
+                <option value="1-12">All year</option>
+                <option value="6-9">Fire season (Jun–Sep)</option>
+                <option value="3-5">Spring (Mar–May)</option>
+                <option value="10-11">Fall (Oct–Nov)</option>
+              </select></div>
+            <div class="ctrl"><label for="ov-cause">Cause</label><select id="ov-cause"></select></div>
+            <div class="ctrl"><label for="ov-acres">Fire size</label>
+              <select id="ov-acres">
+                <option value="0">Any size</option>
+                <option value="1">≥ 1 acre</option>
+                <option value="10">≥ 10 acres</option>
+                <option value="100">≥ 100 acres</option>
+                <option value="1000">≥ 1,000 acres</option>
+              </select></div>
+            <label class="check"><input type="checkbox" id="ov-stations"> Fire stations</label>
+            <button type="button" id="ov-reset" class="linkbtn">Reset</button>
+          </div>
+          <div id="map" class="map tall" role="img" aria-label="Map of fire start locations"></div>
+          <p class="note">Heat = density of fire starts. Zoom in to see individual fires as dots sized by acres (click one for details). Thick lines: DNR regions. Thin lines: counties.</p>
+        </div>
+        <details class="more">
+          <summary>Coverage gaps: fires far from a station <span id="cov-summary" class="pill"></span></summary>
+          <p class="takeaway small" id="take-coverage"></p>
+          <div class="table-wrap"><table id="gap-table"><caption class="sr-only">Counties ranked by coverage gap score</caption></table></div>
+          <p class="note">Stations: OpenStreetMap, mostly municipal and district, not DNR crew bases. Gap score (0–100) = rank of acres burned &gt;10 mi from a station × rank of fire count.</p>
+        </details>
+      </section>
+
+      <!-- 3 · WHEN -->
+      <section role="tabpanel" id="panel-when" aria-labelledby="tab-when" hidden>
+        <p class="takeaway" id="take-season"></p>
+        <div class="card">
+          <div class="card-head"><h2>Fires by week, every region</h2>
+            <div class="seg" role="group" aria-label="Era">
+              <button class="on" data-era="0" aria-pressed="true">1970–2007</button>
+              <button data-era="1" aria-pressed="false">2008–present</button>
+            </div></div>
+          <div id="heat-grid" class="heat-grid"></div>
+          <p class="note">Darker = a larger share of that region's fires that week. Your selection is highlighted.</p>
+        </div>
+        <div class="card"><h2>Fires per year</h2><p class="takeaway small" id="take-trends"></p>
+          <div class="chart"><canvas id="c-count" aria-label="Fires per year, 1970 to 2026"></canvas></div>
+          <p class="note">Orange = 1970–2007 main dataset. Grey = 2008–present check data. 2026 is partial.</p></div>
+        <details class="more">
+          <summary>More: acres per year and season length</summary>
+          <div class="grid2">
+            <div class="card"><h2>Acres burned per year</h2><div class="chart"><canvas id="c-acres" aria-label="Acres burned per year"></canvas></div></div>
+            <div class="card"><h2>Season window by decade</h2><p class="takeaway small" id="take-length"></p>
+              <div class="chart"><canvas id="c-season" aria-label="Season start and end by decade"></canvas></div>
+              <p class="note">Bar spans the 10th to 90th percentile start date.</p></div>
+          </div>
+        </details>
+      </section>
+
+      <!-- 4 · WHY -->
+      <section role="tabpanel" id="panel-why" aria-labelledby="tab-why" hidden>
+        <p class="takeaway" id="take-weather"></p>
+        <div class="grid2">
+          <div class="card"><h2>Summer acres after dry, normal and wet springs</h2>
+            <div class="chart"><canvas id="c-terciles" aria-label="Median summer acres in dry, normal and wet springs"></canvas></div>
+            <p class="note" id="weather-cuts"></p></div>
+          <div class="card"><h2>What starts the fires</h2><p class="takeaway small" id="take-causes"></p>
+            <div class="chart"><canvas id="c-causes" aria-label="Share of fires by cause group per decade"></canvas></div></div>
+        </div>
+        <details class="more">
+          <summary>More: year-by-year spring rain vs. summer acres</summary>
+          <div class="card"><div class="chart"><canvas id="c-scatter" aria-label="Scatter of spring rain percent of normal versus July to September acres"></canvas></div>
+            <p class="note" id="weather-r"></p>
+            <p class="note">Weather: Open-Meteo historical archive, sampled at the median location of each county's fires. Spring = Apr–Jun rain vs. the county's 1970–2007 average. Summer = Jul–Sep fires.</p></div>
+        </details>
+      </section>
+
+      <!-- 5 · STAGE & PREVENT (2008-present lifecycle + impact columns) -->
+      <section role="tabpanel" id="panel-stage" aria-labelledby="tab-stage" hidden>
+        <div class="card controls">
+          <div class="ctrl"><label for="st-month">Month</label><select id="st-month"></select></div>
+          <div class="ctrl"><label for="st-teams">Strike teams</label><select id="st-teams"><option>1</option><option selected>2</option><option>3</option><option>4</option></select></div>
+          <div class="ctrl"><label for="st-weight">Weight heat by</label><select id="st-weight">
+            <option value="hours">Hours to control</option><option value="timber">Timber acres lost</option><option value="both" selected>Both (severity)</option></select></div>
+          <p class="note">Uses the region of your selection. Data: 2008–present, DNR-protected, false alarms removed.</p>
+        </div>
+        <p class="takeaway" id="take-staging"></p>
+        <div class="kpis" id="st-kpis"></div>
+        <div class="card"><h2>Where severe fires start, and where to stage</h2>
+          <div id="map3" class="map" role="img" aria-label="Severity-weighted heat map with suggested staging points"></div>
+          <p class="note">Numbered pins = severity-weighted centers of fires that escaped initial attack (&gt;24 h to control or &gt;100 ac) this month. A starting point, not a road-network plan.</p></div>
+        <div class="card"><h2>Month by month, <span id="mx-region"></span></h2>
+          <p class="takeaway small">Darker = more fires escaping initial attack. Use it to time staffing and prevention pushes.</p>
+          <div class="table-wrap"><table id="matrix"><caption class="sr-only">Monthly resource allocation matrix</caption></table></div></div>
+        <details class="more">
+          <summary>Prevention targeting: when and how human-caused fires start</summary>
+          <div class="grid2">
+            <div class="card"><h2>Campfire &amp; recreation: day of week</h2><p class="takeaway small" id="take-dow"></p>
+              <div class="chart"><canvas id="c-dow" aria-label="Recreation fires by day of week"></canvas></div></div>
+            <div class="card"><h2>Equipment &amp; power lines: hour</h2><p class="takeaway small" id="take-hour"></p>
+              <div class="chart"><canvas id="c-hour" aria-label="Equipment and power generation fires by hour of day"></canvas></div></div>
+            <div class="card"><h2>Escaped debris burns: why</h2><p class="takeaway small" id="take-escape"></p>
+              <div class="chart"><canvas id="c-escape" aria-label="Escape reasons for debris burns"></canvas></div></div>
+            <div class="card"><h2>Which causes cost the most</h2><p class="takeaway small" id="take-cost"></p>
+              <div class="table-wrap"><table id="cost-table"><caption class="sr-only">Cause groups by cost</caption></table></div></div>
+          </div>
+        </details>
+      </section>
+    </main>
+
+    <aside class="sidebar" aria-label="Right now">
+      <h2>Right now</h2>
+      <p class="note">Live conditions from DNR and partners (opens in a new tab).</p>
+      <ul class="links">
+        <li><a href="https://experience.arcgis.com/experience/6cdda73cf6154949a1fae76ccb2900a0" target="_blank" rel="noopener">DNR Fire Dashboard</a><span>Current incidents</span></li>
+        <li><a href="https://fortress.wa.gov/dnr/protection/firedanger/" target="_blank" rel="noopener">Burn Risk Map</a><span>Fire danger by area</span></li>
+        <li><a href="https://fortress.wa.gov/dnr/protection/ifpl/" target="_blank" rel="noopener">IFPL levels</a><span>Industrial fire precaution</span></li>
+        <li><a href="http://gacc.nifc.gov/nwcc/" target="_blank" rel="noopener">NWCC briefings</a><span>Northwest coordination center</span></li>
+      </ul>
+      <div class="about">
+        <h3>About the data</h3>
+        <p>Main: DNR Fire Statistics 1970–2007 (38,113 fires). Check: DNR Fire Statistics 2008–present, DNR-protected only. Fires are shown only as counts by county and region.</p>
+        <p class="note" id="generated"></p>
+      </div>
+    </aside>
+  </div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.heat/0.2.0/leaflet-heat.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
